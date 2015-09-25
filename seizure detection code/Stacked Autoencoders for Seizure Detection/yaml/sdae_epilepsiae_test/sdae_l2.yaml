@@ -1,0 +1,44 @@
+!obj:pylearn2.train.Train {
+    dataset: &train !obj:pylearn2.datasets.transformer_dataset.TransformerDataset {
+        raw: !obj:pylearn2ext.epilepsiae.EpilepsiaeTest {
+            patient_id: %(patient_id)i,
+            which_set: 'train',
+            preprocessor_path: '%(save_path)s/sdae_scaler.pkl',
+            data_dir: '%(data_path)s',
+            leave_one_out_seizure: %(leave_one_out_seizure)i,
+            sample_size_second: 1,
+            batch_size: %(batch_size)i
+        },
+        transformer: !pkl: "%(save_path)s/sdae_l1.pkl"
+    },
+    model: !obj:pylearn2.models.autoencoder.Autoencoder {
+        nvis : %(nvis)i,
+        nhid : %(nhid)i,
+        irange : 0.05,
+        act_enc: "sigmoid",
+        act_dec: "sigmoid",
+    },
+    algorithm: !obj:pylearn2.training_algorithms.sgd.SGD {
+        learning_rate : 1e-3,
+        batch_size : %(batch_size)i,
+        monitoring_batches : %(monitoring_batches)i,
+        monitoring_dataset : *train,
+        cost : !obj:pylearn2.costs.cost.SumOfCosts {
+            costs: [
+               !obj:pylearn2.costs.autoencoder.MeanSquaredReconstructionError {},
+               !obj:pylearn2ext.autoencoder.WeightDecay {
+                  coeff: 3e-3
+               },
+               !obj:pylearn2.costs.autoencoder.SparseActivation {
+                  coeff: 3,
+                  p: 0.1
+               }
+             ]
+        },
+        termination_criterion : !obj:pylearn2.termination_criteria.EpochCounter {
+            max_epochs: %(max_epochs)i,
+        },
+    },
+    save_path: "%(save_path)s/sdae_l2.pkl",
+    save_freq: 1
+}

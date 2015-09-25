@@ -1,0 +1,49 @@
+!obj:pylearn2.train.Train {
+    # Dataset for training
+    dataset: &train !obj:pylearn2.datasets.transformer_dataset.TransformerDataset {
+        raw: !obj:pylearn2.datasets.transformer_dataset.TransformerDataset {
+            raw: !obj:data_extraction.epilepsiae.EpilepsiaeFeatureLoaderSAE {
+                patient_id: %(patient_id)s,
+                which_set: 'train',
+                list_features: ['RSP.smoothRS_norm'],
+                leave_out_seizure_idx_valid: %(leave_out_seizure_idx_valid)i,
+                leave_out_seizure_idx_test: %(leave_out_seizure_idx_test)i,
+                preprocessor_dir: '%(save_model_dir)s',
+                data_dir: '%(data_dir)s',
+#                n_selected_features: 100,
+                batch_size: &batch_size 10,
+                preictal_sec: %(preictal_sec)i,
+                use_all_nonictals: %(use_all_nonictals)i
+            },
+            transformer: !pkl: '%(save_model_dir)s/ae_l1.pkl'
+        },
+        transformer: !pkl: '%(save_model_dir)s/ae_l2.pkl'
+    },
+    # Model to be trained
+    model: !obj:pylearn2.models.softmax_regression.SoftmaxRegression {
+        nvis : 500,
+        n_classes : 2,
+        irange: 5e-2
+    },
+    # Training algorithm
+    algorithm: !obj:pylearn2.training_algorithms.sgd.SGD {
+        learning_rate : 1e-3,
+        batch_size : *batch_size,
+        monitoring_dataset : *train,
+        cost: !obj:pylearn2.costs.cost.SumOfCosts {
+            costs: [
+                !obj:pylearn2.costs.mlp.Default {},
+                !obj:pylearn2.costs.mlp.WeightDecay {
+                    coeffs: {
+                        'y': 1e-2
+                    }
+                }
+            ]
+        },
+        termination_criterion : !obj:pylearn2.termination_criteria.EpochCounter {
+            max_epochs: 30
+        },
+    },
+    save_path: '%(save_model_dir)s/softmax.pkl',
+    save_freq: 1
+}

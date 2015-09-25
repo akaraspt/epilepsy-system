@@ -1,0 +1,122 @@
+# Each train object has 'dataset', 'model', 'algorithm' and 'extension'
+!obj:pylearn2.train.Train {
+    # Dataset for training
+    dataset: &train !obj:data_extraction.epilepsiae.EpilepsiaeFeatureLoaderSAE {
+        patient_id: %(patient_id)s,
+        which_set: 'train',
+        list_features: ['RSP.smoothRS_norm'],
+        leave_out_seizure_idx_valid: %(leave_out_seizure_idx_valid)i,
+        leave_out_seizure_idx_test: %(leave_out_seizure_idx_test)i,
+        preprocessor_dir: '%(save_model_dir)s',
+        data_dir: '%(data_dir)s',
+#        n_selected_features: 100,
+        batch_size: &batch_size 10,
+        preictal_sec: %(preictal_sec)i,
+        use_all_nonictals: %(use_all_nonictals)i
+    },
+    # Model to be trained
+    model: !obj:pylearn2.models.mlp.MLP {
+        # Every layer of the MLP needs a unique name.
+        # These layer names are used to generate monitor channel names later
+        # so that we can track properties of each layer separately.
+        layers: [
+            !obj:pylearn2ext.mlp.PretrainedLayerWeight {
+             layer_name: 'ae_l1',
+             layer_content: !pkl: '%(save_model_dir)s/ae_l1.pkl'
+            },
+            !obj:pylearn2ext.mlp.PretrainedLayerWeight {
+             layer_name: 'ae_l2',
+             layer_content: !pkl: '%(save_model_dir)s/ae_l2.pkl'
+            },
+            !obj:pylearn2.models.mlp.Softmax {
+             layer_name: 'y',
+             n_classes: 2,
+             irange: 5e-2
+            }
+        ],
+        nvis: 435
+    },
+    # Training algorithm
+    algorithm: !obj:pylearn2.training_algorithms.sgd.SGD {
+        learning_rate: 1e-2,
+        learning_rule: !obj:pylearn2.training_algorithms.learning_rule.Momentum {
+            init_momentum: 5e-1
+        },
+        batch_size: *batch_size,
+        monitoring_dataset: {
+            'train' : *train,
+            'valid' : !obj:data_extraction.epilepsiae.EpilepsiaeFeatureLoaderSAE {
+                patient_id: %(patient_id)s,
+                which_set: 'valid',
+                list_features: ['RSP.smoothRS_norm'],
+                leave_out_seizure_idx_valid: %(leave_out_seizure_idx_valid)i,
+                leave_out_seizure_idx_test: %(leave_out_seizure_idx_test)i,
+                preprocessor_dir: '%(save_model_dir)s',
+                data_dir: '%(data_dir)s',
+#                n_selected_features: 100,
+                batch_size: *batch_size,
+                preictal_sec: %(preictal_sec)i,
+                use_all_nonictals: %(use_all_nonictals)i
+            }
+        },
+        # Objective function to minimize
+        cost: !obj:pylearn2.costs.cost.SumOfCosts {
+            costs: [
+                # In the case of the MLP, it is up to the final layer of the MLP to specify the default cost.
+                # Note: same as !obj:pylearn2.costs.mlp.Default {}
+                !obj:pylearn2.costs.cost.MethodCost {
+                    method: 'cost_from_X'
+                },
+                # Regularization term
+                !obj:pylearn2.costs.mlp.WeightDecay {
+                    coeffs: {
+                        'ae_l1': 1e-1,
+                        'ae_l2': 1e-1,
+                        'y': 1e-1
+                    }
+                }
+            ]
+        },
+        termination_criterion: !obj:pylearn2.termination_criteria.And {
+            criteria: [
+#                !obj:pylearn2.termination_criteria.MonitorBased {
+#                    channel_name: 'valid_y_misclass',
+#                    prop_decrease: 0.,
+#                    N: 100
+#                },
+                !obj:pylearn2.termination_criteria.EpochCounter {
+                    max_epochs: 50
+                }
+            ]
+        }
+    },
+    # Extensions are objects with callbacks that get triggered at different points in time, such as the end of a
+    # training epoch.
+    extensions: [
+        # Whenever the monitoring channels are updated, MonitorBasedSaveBest will check if a specific channel decreased,
+        #  and if so, it will save a copy of the model.
+        !obj:pylearn2.train_extensions.best_params.MonitorBasedSaveBest {
+            channel_name: 'valid_y_misclass',
+            save_path: '%(save_model_dir)s/sae_best.pkl'
+        },
+        # Adjust the momentum setting of the SGD algorithm at the end of each epoch.
+        # It starts increasing the momentum after 'start' epoch, and to continue increasing it until
+        #  it reaches a value of 'final_momentum' at the end of the 'saturate' epoch.
+        !obj:pylearn2.training_algorithms.learning_rule.MomentumAdjustor {
+            start: 1,
+            saturate: 20,
+            final_momentum: 7e-1
+        },
+        # Adjust the learning rate of the SGD algorithm at the end of each epoch.
+        # It starts shrinking the learning rate after 'start' epoch , and to continue increasing it until
+        #  it reaches a value of (learning rate * 'decay_factor') at the end of 'saturate' epoch.
+        !obj:pylearn2.training_algorithms.sgd.LinearDecayOverEpoch {
+            start: 1,
+            saturate: 20,
+            decay_factor: 1e-1
+        }
+    ],
+
+    save_path: '%(save_model_dir)s/sae.pkl',
+    save_freq: 1
+}
